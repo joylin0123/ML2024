@@ -59,10 +59,33 @@ class Preprocessor:
         )
         return self
 
+    def _pca(self, X):
+        X_centered = X - np.mean(X, axis=0)
+        covariance_matrix = np.cov(X_centered, rowvar=False)
+        eigenvalues, eigenvectors = np.linalg.eigh(covariance_matrix)
+        sorted_indices = np.argsort(eigenvalues)[::-1]
+        eigenvalues = eigenvalues[sorted_indices]
+        eigenvectors = eigenvectors[:, sorted_indices]
+        return np.dot(X_centered, eigenvectors[:, :8])
+
+    def _balance_data(self):
+        majority = self.df[self.df['y'] == 0]
+        minority = self.df[self.df['y'] == 1]
+
+        num_samples_to_add = len(majority) - len(minority)
+
+        if num_samples_to_add > 0:
+            minority_oversampled = minority.sample(n=num_samples_to_add, replace=True, random_state=42)
+            self.df = pd.concat([self.df, minority_oversampled])
+        self.df = self.df.sample(frac=1, random_state=42).reset_index(drop=True)
+
+        return self
+
     def preprocess(self):
         self._drop_index()
         self._standardize_scalar()
         self._mice_imputation()
+        self._balance_data()
         numeric_columns = self.df.select_dtypes(include=['int64', 'float64']).columns
         self._remove_outliers(numeric_columns)
         self._add_polynomial_features(numeric_columns)
@@ -70,4 +93,5 @@ class Preprocessor:
         self._normalize(updated_numeric_columns)
         y = (self.df['y'] > 0.5).astype(int).to_numpy()
         X = self.df.drop('y', axis=1).to_numpy(dtype=float)
-        return X, y
+        X_pca = self._pca(X)
+        return X_pca, y
