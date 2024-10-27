@@ -4,7 +4,6 @@ from preprocessor import Preprocessor
 from model import MLPClassifier, activation, Optimizer
 from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score, matthews_corrcoef, roc_auc_score
 import os
-import sys
 
 def dataPreprocessing():
     """ TODO, use your own dataPreprocess function here. """
@@ -107,7 +106,7 @@ def main():
         model.fit(train_X, train_y)
         pred = model.predict(test_X)
         print_metrics(pred, test_y)
- 
+
 if __name__ == "__main__":
     np.random.seed(0)
     main()
