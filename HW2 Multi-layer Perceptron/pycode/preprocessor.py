@@ -4,9 +4,11 @@ import pandas as pd
 
 class Preprocessor:
     """ TODO """ 
-    def __init__(self, df):
+    def __init__(self, df, variance_threshold=0.1, correlation_threshold=0.8):
         # Initialize the preprocessor with a DataFrame
         self.df = df
+        self.variance_threshold = variance_threshold
+        self.correlation_threshold = correlation_threshold
 
     def _drop_index(self):
         if 'Unnamed: 0' in self.df.columns:
@@ -45,11 +47,22 @@ class Preprocessor:
                 self.df = self.df[z_scores < threshold]
         return self
 
-    def _add_polynomial_features(self, columns, degree=2):
+    def _add_polynomial_features(self, columns, degree=3):
+        new_columns = []
+
         for col in columns:
             for d in range(2, degree + 1):
-                new_col_name = f"{col}^2"
-                self.df[new_col_name] = self.df[col] ** d
+                new_col_name = f"{col}^{d}"
+                new_columns.append((new_col_name, self.df[col] ** d))
+
+        for i in range(len(columns)):
+            for j in range(i + 1, len(columns)):
+                new_col_name = f"{columns[i]}*{columns[j]}"
+                new_columns.append((new_col_name, self.df[columns[i]] * self.df[columns[j]]))
+        
+        new_columns_df = pd.DataFrame(dict(new_columns))
+        self.df = pd.concat([self.df, new_columns_df], axis=1)
+
         return self
 
     def _normalize(self, numeric_columns):
@@ -81,14 +94,28 @@ class Preprocessor:
 
         return self
 
-    def preprocess(self):
+    def _variance_threshold_selector(self, X):
+        high_variance_cols = X.columns[X.var() > self.variance_threshold]
+        return X[high_variance_cols]
+
+    def _correlation_threshold_selector(self, X):
+        correlation_matrix = X.corr().abs()
+        upper_tri = correlation_matrix.where(np.triu(np.ones(correlation_matrix.shape), k=1).astype(bool))
+        to_drop = [column for column in upper_tri.columns if any(upper_tri[column] > self.correlation_threshold)]
+        return X.drop(columns=to_drop)
+
+    def preprocess(self, train=True):
         self._drop_index()
         self._standardize_scalar()
         self._mice_imputation()
-        self._balance_data()
+
         numeric_columns = self.df.select_dtypes(include=['int64', 'float64']).columns
         self._remove_outliers(numeric_columns)
         self._add_polynomial_features(numeric_columns)
+        if train:
+            self._balance_data()
+            self.df = self._variance_threshold_selector(self.df)
+            self.df = self._correlation_threshold_selector(self.df)
         updated_numeric_columns = self.df.select_dtypes(include=['int64', 'float64']).columns
         self._normalize(updated_numeric_columns)
         y = (self.df['y'] > 0.5).astype(int).to_numpy()

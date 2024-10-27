@@ -24,7 +24,7 @@ def dataPreprocessing():
     test_labels = pd.read_csv(test_y)
     test_data['y'] = test_labels.iloc[:, -1]
 
-    test_X, test_y = Preprocessor(test_data).preprocess()
+    test_X, test_y = Preprocessor(test_data).preprocess(train=False)
 
     return train_X, train_y, test_X, test_y # train, test data should be numpy array
 
@@ -62,7 +62,7 @@ def main():
         print_metrics(pred, test_y)
 
     print("\nWithout Activation Function")
-    activate_function = activation(type=act_type)
+    activate_function = activation(type='sigmoid')
     optimizer_choice = Optimizer(type='sgd')
     model = MLPClassifier(layers=layers,
                         activate_function=activate_function,
@@ -80,8 +80,6 @@ def main():
         print(f"\nOptimizer: {opt_type}")
 
         optimizer_choice = Optimizer(type=opt_type)
-        activate_function = activation(type='sigmoid')
-
         model = MLPClassifier(layers=layers,
                               activate_function=activate_function,
                               optimizer=optimizer_choice,
@@ -92,7 +90,7 @@ def main():
         pred = model.predict(test_X)
         print_metrics(pred, test_y)
 
-    for layer in [[train_X.shape[1], 100, 100, 1], [train_X.shape[1], 100, 100, 100, 100, 100, 1], [train_X.shape[1], 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 1]]:
+    for layer in [[train_X.shape[1], 100, 100, 1], [train_X.shape[1], 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 1]]:
         print(f"\nLayers: {layer}")
         activate_function = activation(type='sigmoid')
         optimizer_choice = Optimizer(type='sgd')
