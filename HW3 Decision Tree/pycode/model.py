@@ -16,8 +16,12 @@ class Classifier(ABC):
         pass
 
 class DecisionTreeClassifier(Classifier):
-    def __init__(self, max_depth=1):
+    def __init__(self, max_depth=1, min_samples_split=2, min_samples_leaf=1, min_gain_split=0):
         self.max_depth = max_depth
+        self.max_depth = max_depth
+        self.min_samples_split = min_samples_split
+        self.min_samples_leaf = min_samples_leaf
+        self.min_gain_split = min_gain_split
 
     def fit(self, X, y):
         if X.shape[0] == 0 or len(y) == 0:
@@ -26,23 +30,24 @@ class DecisionTreeClassifier(Classifier):
 
     def _grow_tree(self, X, y, depth=0):
         num_samples, num_features = X.shape
-        if depth >= self.max_depth or num_samples <= 1:
+        if (depth >= self.max_depth or num_samples < self.min_samples_split or
+            num_samples <= self.min_samples_leaf or len(np.unique(y)) == 1):
             leaf_value = self._most_common_label(y)
             return {"leaf": leaf_value, "idxs": np.arange(num_samples)}
 
         best_split = self.find_best_split(X, y)
-        if best_split is None:
+        if best_split is None or best_split["gain"] < self.min_gain_split:
             leaf_value = self._most_common_label(y)
             return {"leaf": leaf_value, "idxs": np.arange(num_samples)}
 
         left_idxs, right_idxs = self.split_dataset(X, y, best_split["feature_index"], best_split["threshold"])
-        left_subtree = self._grow_tree(X[left_idxs, :], y[left_idxs], depth + 1)
-        right_subtree = self._grow_tree(X[right_idxs, :], y[right_idxs], depth + 1)
+        left_tree = self._grow_tree(X[left_idxs], y[left_idxs], depth + 1)
+        right_tree = self._grow_tree(X[right_idxs], y[right_idxs], depth + 1)
         return {
             "feature_index": best_split["feature_index"],
             "threshold": best_split["threshold"],
-            "left": left_subtree,
-            "right": right_subtree,
+            "left": left_tree,
+            "right": right_tree,
             "left_idxs": left_idxs,
             "right_idxs": right_idxs
         }
@@ -53,8 +58,8 @@ class DecisionTreeClassifier(Classifier):
         return left_idxs, right_idxs
 
     def find_best_split(self, X, y):
-        best_split = {}
-        best_gain = -1
+        best_gain = 0
+        best_split = None
         num_samples, num_features = X.shape
         for feature_index in range(num_features):
             thresholds = np.unique(X[:, feature_index])
@@ -62,8 +67,8 @@ class DecisionTreeClassifier(Classifier):
                 gain = self._information_gain(X, y, feature_index, threshold)
                 if gain > best_gain:
                     best_gain = gain
-                    best_split = {"feature_index": feature_index, "threshold": threshold}
-        return best_split if best_gain > 0 else None
+                    best_split = {"feature_index": feature_index, "threshold": threshold, "gain": gain}
+        return best_split
 
     def entropy(self, y):
         y = np.ravel(y)  # Ensures y is 1-dimensional
@@ -71,23 +76,7 @@ class DecisionTreeClassifier(Classifier):
         ps = hist / len(y)
         return -np.sum([p * np.log2(p) for p in ps if p > 0])
 
-    def predict_proba(self, X):
-        return np.array([[1, 0] if pred == 1 else [0, 1] for pred in self.predict(X)])
-
-    def predict(self, X):
-        return np.array([self._predict_tree(x, self.tree) for x in X])
-
-    def _predict_tree(self, x, tree_node):
-        if "leaf" in tree_node:
-            return tree_node["leaf"]
-        feature_index = tree_node["feature_index"]
-        threshold = tree_node["threshold"]
-        if x[feature_index] <= threshold:
-            return self._predict_tree(x, tree_node["left"])
-        else:
-            return self._predict_tree(x, tree_node["right"])
-
-    def print_tree(self, y, tree=None, depth=0, max_print_depth=3):
+    def print_tree(self, y, tree=None, depth=0, max_print_depth=4):
         if tree is None:
             tree = self.tree
 
@@ -123,7 +112,6 @@ class DecisionTreeClassifier(Classifier):
                 print(f"{'  ' * (depth)}Right:")
                 self.print_tree(y, tree["right"], depth + 1, max_print_depth)
 
-
     def _information_gain(self, X, y, feature_index, threshold):
         parent_entropy = self.entropy(y)
         left_idxs, right_idxs = self.split_dataset(X, y, feature_index, threshold)
@@ -138,3 +126,42 @@ class DecisionTreeClassifier(Classifier):
 
     def _most_common_label(self, y):
         return np.bincount(y).argmax()
+
+    def post_prune(self, X_val, y_val):
+        def prune_tree(tree, X_val, y_val):
+            if "leaf" in tree:
+                return tree
+
+            left_tree = prune_tree(tree["left"], X_val, y_val)
+            right_tree = prune_tree(tree["right"], X_val, y_val)
+
+            if "leaf" in left_tree and "leaf" in right_tree:
+                left_idxs, right_idxs = self.split_dataset(X_val, y_val, tree["feature_index"], tree["threshold"])
+                y_val_left = y_val[left_idxs]
+                y_val_right = y_val[right_idxs]
+
+                error_before_pruning = np.sum(y_val_left != left_tree["leaf"]) + np.sum(y_val_right != right_tree["leaf"])
+                leaf_value = self._most_common_label(np.concatenate([y_val_left, y_val_right]))
+                error_after_pruning = np.sum(y_val != leaf_value)
+
+                if error_after_pruning <= error_before_pruning:
+                    return {"leaf": leaf_value}
+
+            return {"feature_index": tree["feature_index"], "threshold": tree["threshold"], "left": left_tree, "right": right_tree}
+        self.tree = prune_tree(self.tree, X_val, y_val)
+
+    def predict_proba(self, X):
+        return np.array([[1, 0] if pred == 1 else [0, 1] for pred in self.predict(X)])
+
+    def predict(self, X):
+        return np.array([self._predict_tree(x, self.tree) for x in X])
+
+    def _predict_tree(self, x, tree_node):
+        if "leaf" in tree_node:
+            return tree_node["leaf"]
+        feature_index = tree_node["feature_index"]
+        threshold = tree_node["threshold"]
+        if x[feature_index] <= threshold:
+            return self._predict_tree(x, tree_node["left"])
+        else:
+            return self._predict_tree(x, tree_node["right"])
