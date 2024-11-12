@@ -16,7 +16,7 @@ class Classifier(ABC):
         pass
 
 class DecisionTreeClassifier(Classifier):
-    def __init__(self, max_depth=1, min_samples_split=2, min_samples_leaf=1, min_gain_split=0):
+    def __init__(self, max_depth=1, min_samples_split=2, min_samples_leaf=1, min_gain_split=0.01):
         self.max_depth = max_depth
         self.max_depth = max_depth
         self.min_samples_split = min_samples_split
@@ -70,12 +70,51 @@ class DecisionTreeClassifier(Classifier):
                     best_split = {"feature_index": feature_index, "threshold": threshold, "gain": gain}
         return best_split
 
-    def entropy(self, y):
+    def _gini_index(self, y):
         y = np.ravel(y)  # Ensures y is 1-dimensional
         hist = np.bincount(y)
         ps = hist / len(y)
-        return -np.sum([p * np.log2(p) for p in ps if p > 0])
+        return 1.0 - np.sum([p ** 2 for p in ps if p > 0])
 
+    def _information_gain(self, X, y, feature_index, threshold):
+        parent_gini = self._gini_index(y)
+        left_idxs, right_idxs = self.split_dataset(X, y, feature_index, threshold)
+        if len(left_idxs) == 0 or len(right_idxs) == 0:
+            return 0
+        num_samples = len(y)
+        num_left, num_right = len(left_idxs), len(right_idxs)
+        left_gini = self._gini_index(y[left_idxs])
+        right_gini = self._gini_index(y[right_idxs])
+        child_gini = (num_left / num_samples) * left_gini + (num_right / num_samples) * right_gini
+        return parent_gini - child_gini
+
+    def _most_common_label(self, y):
+        return np.bincount(y).argmax()
+
+    def post_prune(self, X_val, y_val):
+        def prune_tree(tree, X_val, y_val):
+            if "leaf" in tree:
+                return tree
+
+            left_tree = prune_tree(tree["left"], X_val, y_val)
+            right_tree = prune_tree(tree["right"], X_val, y_val)
+
+            if "leaf" in left_tree and "leaf" in right_tree:
+                left_idxs, right_idxs = self.split_dataset(X_val, y_val, tree["feature_index"], tree["threshold"])
+                y_val_left = y_val[left_idxs]
+                y_val_right = y_val[right_idxs]
+
+                error_before_pruning = np.sum(y_val_left != left_tree["leaf"]) + np.sum(y_val_right != right_tree["leaf"])
+                leaf_value = self._most_common_label(np.concatenate([y_val_left, y_val_right]))
+                error_after_pruning = np.sum(y_val != leaf_value)
+
+                if error_after_pruning <= error_before_pruning:
+                    return {"leaf": leaf_value}
+
+            return {"feature_index": tree["feature_index"], "threshold": tree["threshold"], "left": left_tree, "right": right_tree}
+        self.tree = prune_tree(self.tree, X_val, y_val)
+
+    
     def print_tree(self, y, tree=None, depth=0, max_print_depth=3):
         if tree is None:
             tree = self.tree
@@ -111,44 +150,6 @@ class DecisionTreeClassifier(Classifier):
 
                 print(f"{'  ' * (depth)}Right:")
                 self.print_tree(y, tree["right"], depth + 1, max_print_depth)
-
-    def _information_gain(self, X, y, feature_index, threshold):
-        parent_entropy = self.entropy(y)
-        left_idxs, right_idxs = self.split_dataset(X, y, feature_index, threshold)
-        if len(left_idxs) == 0 or len(right_idxs) == 0:
-            return 0
-        num_samples = len(y)
-        num_left, num_right = len(left_idxs), len(right_idxs)
-        left_entropy = self.entropy(y[left_idxs])
-        right_entropy = self.entropy(y[right_idxs])
-        child_entropy = (num_left / num_samples) * left_entropy + (num_right / num_samples) * right_entropy
-        return parent_entropy - child_entropy
-
-    def _most_common_label(self, y):
-        return np.bincount(y).argmax()
-
-    def post_prune(self, X_val, y_val):
-        def prune_tree(tree, X_val, y_val):
-            if "leaf" in tree:
-                return tree
-
-            left_tree = prune_tree(tree["left"], X_val, y_val)
-            right_tree = prune_tree(tree["right"], X_val, y_val)
-
-            if "leaf" in left_tree and "leaf" in right_tree:
-                left_idxs, right_idxs = self.split_dataset(X_val, y_val, tree["feature_index"], tree["threshold"])
-                y_val_left = y_val[left_idxs]
-                y_val_right = y_val[right_idxs]
-
-                error_before_pruning = np.sum(y_val_left != left_tree["leaf"]) + np.sum(y_val_right != right_tree["leaf"])
-                leaf_value = self._most_common_label(np.concatenate([y_val_left, y_val_right]))
-                error_after_pruning = np.sum(y_val != leaf_value)
-
-                if error_after_pruning <= error_before_pruning:
-                    return {"leaf": leaf_value}
-
-            return {"feature_index": tree["feature_index"], "threshold": tree["threshold"], "left": left_tree, "right": right_tree}
-        self.tree = prune_tree(self.tree, X_val, y_val)
 
     def predict_proba(self, X):
         return np.array([[1, 0] if pred == 1 else [0, 1] for pred in self.predict(X)])

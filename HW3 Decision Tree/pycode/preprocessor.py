@@ -108,12 +108,10 @@ class Preprocessor:
         self._drop_index()
         self._standardize_scalar()
         self._mice_imputation()
-
         numeric_columns = self.df.select_dtypes(include=['int64', 'float64']).columns
-        self._remove_outliers(numeric_columns)
-        self._add_polynomial_features(numeric_columns)
-
         if train:
+            self._remove_outliers(numeric_columns)
+            self._add_polynomial_features(numeric_columns)
             self._balance_data()
             self.df = self._variance_threshold_selector(self.df)
             self.df = self._correlation_threshold_selector(self.df)
@@ -123,6 +121,5 @@ class Preprocessor:
             X = self.df.drop('y', axis=1).to_numpy(dtype=float)
             X_pca = self._pca(X)
             return X_pca, y
-
         self._normalize(numeric_columns)
         return self.df.to_numpy(dtype=float)
