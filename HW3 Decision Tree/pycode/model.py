@@ -76,7 +76,7 @@ class DecisionTreeClassifier(Classifier):
         ps = hist / len(y)
         return -np.sum([p * np.log2(p) for p in ps if p > 0])
 
-    def print_tree(self, y, tree=None, depth=0, max_print_depth=4):
+    def print_tree(self, y, tree=None, depth=0, max_print_depth=3):
         if tree is None:
             tree = self.tree
 
